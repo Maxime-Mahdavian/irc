@@ -16,28 +16,31 @@ import logging
 import patterns
 import view
 import socket
+import argparse
 
 logging.basicConfig(filename='view.log', level=logging.DEBUG)
 logger = logging.getLogger()
 
-HOST = 'localhost'
-PORT = 12345
+#HOST = 'localhost'
+#PORT = 12345
 
 class IRCClient(patterns.Subscriber):
 
-    def __init__(self):
+    def __init__(self, host, port):
         super().__init__()
-        self.username = str()
+        self.username = ""
         self.msg = ""
         self._run = True
+        self.host = host
+        self.port = port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.connect((host, int(port)))
 
     def set_view(self, view):
         self.view = view
 
     def update(self, msg):
         # Will need to modify this
-        self.msg = msg
         if not isinstance(msg, str):
             raise TypeError(f"Update argument needs to be a string")
         elif not len(msg):
@@ -54,8 +57,10 @@ class IRCClient(patterns.Subscriber):
             # Command that leads to the closure of the process
             raise KeyboardInterrupt
 
-    def send_msg(self,msg):
-        self.sock.sendall("Something " + msg)
+
+
+    def send_msg(self, msg):
+        self.sock.sendall(bytes(msg))
 
     def add_msg(self, msg):
         self.view.add_msg(self.username, msg)
@@ -63,18 +68,15 @@ class IRCClient(patterns.Subscriber):
     def connect(self, username):
         self.sock.connect((HOST,PORT))
 
-
     async def run(self):
         """
         Driver of your IRC Client
         """
+        #self.add_msg("Type your nickname")
         # Remove this section in your code, simply for illustration purposes
         #for x in range(10):
         #    self.add_msg(f"call after View.loop: {self.msg}")
         #    await asyncio.sleep(2)
-
-        self.connect("Max")
-        self.send_msg("Something from the client")
 
 
     def close(self):
@@ -86,7 +88,7 @@ class IRCClient(patterns.Subscriber):
 
 def main(args):
     # Pass your arguments where necessary
-    client = IRCClient()
+    client = IRCClient(args[0], args[1])
     logger.info(f"Client object created")
     with view.View() as v:
         logger.info(f"Entered the context of a View object")
@@ -108,5 +110,14 @@ def main(args):
 
 if __name__ == "__main__":
     # Parse your command line arguments here
-    args = None
-    main(args)
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--server', '-s', default='127.0.0.1', help='server IP address')
+    parser.add_argument('-p', '--port', default='12345', help='server port')
+
+    args = parser.parse_args()
+    HOST = args.server
+    PORT = args.port
+
+    cmdArgs = [HOST, PORT]
+    main(cmdArgs)
