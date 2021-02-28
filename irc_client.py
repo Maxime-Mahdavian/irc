@@ -17,6 +17,7 @@ import patterns
 import view
 import socket
 import argparse
+from _thread import *
 
 logging.basicConfig(filename='view.log', level=logging.DEBUG)
 logger = logging.getLogger()
@@ -34,7 +35,8 @@ class IRCClient(patterns.Subscriber):
         self.host = host
         self.port = port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((host, int(port)))
+        self.sock.connect((self.host, int(self.port)))
+
 
     def set_view(self, view):
         self.view = view
@@ -47,20 +49,27 @@ class IRCClient(patterns.Subscriber):
             # Empty string
             return
         logger.info(f"IRCClient.update -> msg: {msg}")
-        self.process_input(msg)
+
+        if not self.username:
+            nick_message = "NICK " + msg
+            self.send_msg(nick_message)
+            self.set_nickname(msg)
+        else:
+            self.process_input(msg)
+            self.send_msg(msg)
+
+
 
     def process_input(self, msg):
         # Will need to modify this
         logger.info(f"In process input -> msg: {msg}")
-        self.add_msg(msg)
+        #self.add_msg(msg)
         if msg.lower().startswith('/quit'):
             # Command that leads to the closure of the process
             raise KeyboardInterrupt
 
-
-
     def send_msg(self, msg):
-        self.sock.sendall(bytes(msg))
+        self.sock.sendall(bytes(msg.encode()))
 
     def add_msg(self, msg):
         self.view.add_msg(self.username, msg)
@@ -68,15 +77,25 @@ class IRCClient(patterns.Subscriber):
     def connect(self, username):
         self.sock.connect((HOST,PORT))
 
+    def set_nickname(self,nick):
+        self.username = nick
+
+    def listenToRespone(self):
+        while True:
+            response = self.sock.recv(1024)
+            self.add_msg(response.decode('utf-8'))
+
+
     async def run(self):
         """
         Driver of your IRC Client
         """
-        #self.add_msg("Type your nickname")
+        self.add_msg("Type your nickname")
         # Remove this section in your code, simply for illustration purposes
         #for x in range(10):
         #    self.add_msg(f"call after View.loop: {self.msg}")
         #    await asyncio.sleep(2)
+        start_new_thread(self.listenToRespone, ())
 
 
     def close(self):
