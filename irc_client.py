@@ -22,27 +22,34 @@ from _thread import *
 logging.basicConfig(filename='view.log', level=logging.DEBUG)
 logger = logging.getLogger()
 
-#HOST = 'localhost'
-#PORT = 12345
+RPL_WELCOME          = '001'            #Added in 2812
+ERR_NOSUCHNICK       = '401'
+ERR_CANNOTSENDTOCHAN = '404'
+ERR_UNKNOWNCOMMAND   = '421'
+ERR_NICKNAMEINUSE    = '433'
+ERR_NICKCOLLISION    = '436'
 
 class IRCClient(patterns.Subscriber):
 
     def __init__(self, host, port):
         super().__init__()
         self.username = ""
+        self.old_username = ""
         self.msg = ""
         self._run = True
         self.host = host
         self.port = port
+        self.thread_stop = False
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect((self.host, int(self.port)))
+
 
 
     def set_view(self, view):
         self.view = view
 
     def update(self, msg):
-        # Will need to modify this
+
         if not isinstance(msg, str):
             raise TypeError(f"Update argument needs to be a string")
         elif not len(msg):
@@ -51,22 +58,33 @@ class IRCClient(patterns.Subscriber):
         logger.info(f"IRCClient.update -> msg: {msg}")
 
         if not self.username:
-            nick_message = "NICK " + msg
+            nick_message = self.process_input(msg, "NICK")
             self.send_msg(nick_message)
             self.set_nickname(msg)
         else:
-            self.process_input(msg)
-            self.send_msg(msg)
+            message = self.process_input(msg, "PRIVMSG")
+            self.send_msg(message)
 
 
 
-    def process_input(self, msg):
-        # Will need to modify this
+    def process_input(self, msg, command):
+
         logger.info(f"In process input -> msg: {msg}")
         #self.add_msg(msg)
         if msg.lower().startswith('/quit'):
             # Command that leads to the closure of the process
+            self.thread_stop = True
             raise KeyboardInterrupt
+        if msg.lower().startswith('/nick'):
+            self.old_username = self.username
+            self.username = msg[6:]
+            return ":" + self.old_username + " NICK " + self.username + "\r\n"
+
+        if command == "NICK":
+            return "NICK " + msg + "\r\n"
+        elif command == "PRIVMSG":
+            logger.info("IN PRIVMSG")
+            return "PRIVMSG " + self.username + " :" + msg + "\r\n"
 
     def send_msg(self, msg):
         self.sock.sendall(bytes(msg.encode()))
@@ -82,8 +100,23 @@ class IRCClient(patterns.Subscriber):
 
     def listenToRespone(self):
         while True:
-            response = self.sock.recv(1024)
-            self.add_msg(response.decode('utf-8'))
+            response = self.sock.recv(512)
+            response = response.decode('utf-8')
+
+            if response == RPL_WELCOME:
+                self.add_msg("SERVER: WELCOME TO THE SERVER " + self.username)
+            elif response == ERR_NICKCOLLISION:
+                if not self.old_username:
+                    self.set_nickname("")
+                    self.add_msg("SERVER: NICKNAME IS ALREADY TAKEN, PLEASE SPECIFY ANOTHER")
+                else:
+                    self.username = self.old_username
+                    self.add_msg("SERVER: NICKNAME IS ALREADY TAKEN, PLEASE SPECIFY ANOTHER")
+            else:
+                self.add_msg(response)
+
+            if self.thread_stop:
+                break
 
 
     async def run(self):
@@ -91,10 +124,6 @@ class IRCClient(patterns.Subscriber):
         Driver of your IRC Client
         """
         self.add_msg("Type your nickname")
-        # Remove this section in your code, simply for illustration purposes
-        #for x in range(10):
-        #    self.add_msg(f"call after View.loop: {self.msg}")
-        #    await asyncio.sleep(2)
         start_new_thread(self.listenToRespone, ())
 
 
