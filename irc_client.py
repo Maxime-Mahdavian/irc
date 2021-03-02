@@ -26,8 +26,10 @@ RPL_WELCOME          = '001'            #Added in 2812
 ERR_NOSUCHNICK       = '401'
 ERR_CANNOTSENDTOCHAN = '404'
 ERR_UNKNOWNCOMMAND   = '421'
+ERR_ERRONEUSNICKNAME = '432'
 ERR_NICKNAMEINUSE    = '433'
 ERR_NICKCOLLISION    = '436'
+ERR_NEEDMOREPARAMS   = '461'
 
 class IRCClient(patterns.Subscriber):
 
@@ -57,6 +59,7 @@ class IRCClient(patterns.Subscriber):
             return
         logger.info(f"IRCClient.update -> msg: {msg}")
 
+        # If the username is not set, then the client needs to set it
         if not self.username:
             nick_message = self.process_input(msg, "NICK")
             self.send_msg(nick_message)
@@ -65,16 +68,12 @@ class IRCClient(patterns.Subscriber):
             message = self.process_input(msg, "PRIVMSG")
             self.send_msg(message)
 
-
-
+    # Process the input and formats a command for the server
     def process_input(self, msg, command):
-
         logger.info(f"In process input -> msg: {msg}")
-        #self.add_msg(msg)
         if msg.lower().startswith('/quit'):
             # Command that leads to the closure of the process
-            self.thread_stop = True
-            raise KeyboardInterrupt
+            return msg + "\r\n"
         if msg.lower().startswith('/nick'):
             self.old_username = self.username
             self.username = msg[6:]
@@ -86,18 +85,18 @@ class IRCClient(patterns.Subscriber):
             logger.info("IN PRIVMSG")
             return "PRIVMSG " + self.username + " :" + msg + "\r\n"
 
+    # Send a message with the socket to the server
     def send_msg(self, msg):
         self.sock.sendall(bytes(msg.encode()))
 
     def add_msg(self, msg):
         self.view.add_msg(self.username, msg)
 
-    def connect(self, username):
-        self.sock.connect((HOST,PORT))
-
+    # Set the nickname
     def set_nickname(self,nick):
         self.username = nick
 
+    # Function that listens to response from the server and acts accordingly
     def listenToRespone(self):
         while True:
             response = self.sock.recv(512)
@@ -112,11 +111,27 @@ class IRCClient(patterns.Subscriber):
                 else:
                     self.username = self.old_username
                     self.add_msg("SERVER: NICKNAME IS ALREADY TAKEN, PLEASE SPECIFY ANOTHER")
+            elif response == ERR_ERRONEUSNICKNAME:
+                self.username = self.old_username
+                self.add_msg("SERVER: ERRONEOUS USERNAME")
+            elif response == "KILL":
+                break
+            elif response == ERR_NEEDMOREPARAMS:
+                self.username = self.old_username
+                self.add_msg("SERVER: NOT ENOUGH PARAMETERS")
+            elif response == ERR_UNKNOWNCOMMAND:
+                self.add_msg("SERVER: UNKNOWN COMMAND")
+                if self.old_username:
+                    self.username = self.old_username
+                    self.old_username = ""
             else:
                 self.add_msg(response)
 
-            if self.thread_stop:
-                break
+        # Only way to break from the will loop is kill, so we want to terminate the program
+        self.add_msg("GOODBYE")
+        interrupt_main()
+
+
 
 
     async def run(self):
@@ -124,12 +139,14 @@ class IRCClient(patterns.Subscriber):
         Driver of your IRC Client
         """
         self.add_msg("Type your nickname")
+        # Start the new thread that will listen to responses, while the main thread is sending answers
         start_new_thread(self.listenToRespone, ())
 
 
     def close(self):
         # Terminate connection
         logger.debug(f"Closing IRC Client object")
+        self.sock.close()
         pass
 
 
